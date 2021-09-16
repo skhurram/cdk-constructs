@@ -67,27 +67,37 @@ public class Service extends Construct {
       .build();
 
     Optional<String> httpsListenerArn = networkOutputParameters.getHttpsListenerArn();
+    CfnListenerRule httpsListenerRule = null;
 
-    CfnListenerRule httpsListenerRule = CfnListenerRule.Builder.create(this, "httpsListenerRule")
-        .actions(singletonList(actionProperty))
-        .conditions(singletonList(condition))
-        .listenerArn(httpsListenerArn.get())
-        .priority(1)
-        .build();
+    if (!httpsListenerArn.isPresent()) {
+      httpsListenerRule = CfnListenerRule.Builder.create(this, "httpsListenerRule")
+              .actions(singletonList(actionProperty))
+              .conditions(singletonList(condition))
+              .listenerArn(httpsListenerArn.get())
+              .priority(1)
+              .build();
+    } else {
+      httpsListenerRule.setActions(singletonList(actionProperty));
+      httpsListenerRule.setConditions(singletonList(condition));
+      httpsListenerRule.setListenerArn(httpsListenerArn.get());
+      httpsListenerRule.setPriority(1);
+    }
 
-    // we only want the https listener to be deployed if the httpsListenerArn has a value different from "null"
-    CfnCondition httpsListenerRuleCondition = CfnCondition.Builder.create(this, "httpsListenerRuleCondition")
-      .expression(Fn.conditionNot(Fn.conditionEquals(httpsListenerArn.get(), "null")))
-      .build();
-
-    httpsListenerRule.getCfnOptions().setCondition(httpsListenerRuleCondition);
-
-    CfnListenerRule httpListenerRule = CfnListenerRule.Builder.create(this, "httpListenerRule")
-      .actions(singletonList(actionProperty))
-      .conditions(singletonList(condition))
-      .listenerArn(networkOutputParameters.getHttpListenerArn())
-      .priority(2)
-      .build();
+    String httpListenerArn = networkOutputParameters.getHttpListenerArn();
+    CfnListenerRule httpListenerRule = null;
+    if (httpListenerArn == null) {
+      httpListenerRule = CfnListenerRule.Builder.create(this, "httpListenerRule")
+              .actions(singletonList(actionProperty))
+              .conditions(singletonList(condition))
+              .listenerArn(networkOutputParameters.getHttpListenerArn())
+              .priority(2)
+              .build();
+    } else {
+      httpListenerRule.setActions(singletonList(actionProperty));
+      httpListenerRule.setConditions(singletonList(condition));
+      httpListenerRule.setListenerArn(networkOutputParameters.getHttpListenerArn());
+      httpListenerRule.setPriority(2);
+    }
 
     LogGroup logGroup = LogGroup.Builder.create(this, "ecsLogGroup")
       .logGroupName(applicationEnvironment.prefix("logs"))
@@ -214,6 +224,9 @@ public class Service extends Construct {
 
     // Adding an explicit dependency from the service to the listeners to avoid "has no load balancer associated" error
     // (see https://stackoverflow.com/questions/61250772/how-can-i-create-a-dependson-relation-between-ec2-and-rds-using-aws-cdk).
+    if (httpsListenerArn.isPresent()) {
+      service.addDependsOn(httpsListenerRule);
+    }
     service.addDependsOn(httpListenerRule);
 
     applicationEnvironment.tag(this);
