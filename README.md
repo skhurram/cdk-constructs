@@ -11,6 +11,8 @@ The constructs have been built to deploy a real application into production and 
 
 These constructs are explained in further detail in [our book](https://stratospheric.dev).
 
+From version 0.1.0 onwards, this constructs library only supports the AWS CDK v2. For migrating your existing AWS CDK v1 setup, follow the [official AWS migration guide](https://docs.aws.amazon.com/cdk/v2/guide/migrating-v2.html).
+
 ## Installation
 
 Load the dependency from Maven Central by adding this to your `pom.xml`:
@@ -20,7 +22,7 @@ Load the dependency from Maven Central by adding this to your `pom.xml`:
   <dependency>
     <groupId>dev.stratospheric</groupId>
     <artifactId>cdk-constructs</artifactId>
-    <version>0.0.25</version>
+    <version>${latestVersion}</version>
   </dependency>
 </dependencies>
 ```
@@ -28,7 +30,25 @@ Load the dependency from Maven Central by adding this to your `pom.xml`:
 ... our your `build.gradle`:
 
 ```groovy
-implementation('dev.stratospheric:cdk-constructs:0.0.23')
+implementation('dev.stratospheric:cdk-constructs:${latestVersion}')
+```
+
+The `latestVersion` is: [![](https://img.shields.io/maven-central/v/dev.stratospheric/cdk-constructs.svg?label=)](https://search.maven.org/search?q=g:%22dev.stratospheric%22%20AND%20a:%22cdk-constructs%22)
+
+Use this version without the `v` prefix inside your `pom.xml` or `build.gradle`: `v0.0.13` -> `0.0.13`.
+
+To override the version of the AWS Java CDK library, use a `<dependencyManagement>` inside your `pom.xml`:
+
+```xml
+<dependencyManagement>
+  <dependencies>
+    <dependency>
+      <groupId>software.amazon.awscdk</groupId>
+      <artifactId>aws-cdk-lib</artifactId>
+      <version>2.3.0</version>
+    </dependency>
+  </dependencies>
+</dependencyManagement>
 ```
 
 ## Construct Overview
@@ -104,7 +124,6 @@ Also, a monolithic CDK app would require you to pass the parameters for ALL cons
 
 ## Release Process
 
-To release a new version of `cdk-constructs`, please create a PR for the `release` branch. Once it's merged, we'll automatically deploy a new version to Maven Central.
-
+Head over to the [release information document](RELEASE.md).
 
 

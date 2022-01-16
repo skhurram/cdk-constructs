@@ -1,21 +1,43 @@
 package dev.stratospheric.cdk;
 
-import org.jetbrains.annotations.NotNull;
-import org.jetbrains.annotations.Nullable;
-import software.amazon.awscdk.core.Construct;
-import software.amazon.awscdk.core.Environment;
-import software.amazon.awscdk.core.Tags;
-import software.amazon.awscdk.services.ec2.*;
-import software.amazon.awscdk.services.ecs.Cluster;
-import software.amazon.awscdk.services.ecs.ICluster;
-import software.amazon.awscdk.services.elasticloadbalancingv2.*;
-import software.amazon.awscdk.services.ssm.StringParameter;
-
 import java.util.Collections;
 import java.util.List;
 import java.util.Objects;
 import java.util.Optional;
 import java.util.stream.Collectors;
+
+import org.jetbrains.annotations.NotNull;
+import org.jetbrains.annotations.Nullable;
+import software.amazon.awscdk.Environment;
+import software.amazon.awscdk.Tags;
+import software.amazon.awscdk.services.ec2.CfnSecurityGroupIngress;
+import software.amazon.awscdk.services.ec2.ISecurityGroup;
+import software.amazon.awscdk.services.ec2.ISubnet;
+import software.amazon.awscdk.services.ec2.IVpc;
+import software.amazon.awscdk.services.ec2.SecurityGroup;
+import software.amazon.awscdk.services.ec2.SubnetConfiguration;
+import software.amazon.awscdk.services.ec2.SubnetType;
+import software.amazon.awscdk.services.ec2.Vpc;
+import software.amazon.awscdk.services.ecs.Cluster;
+import software.amazon.awscdk.services.ecs.ICluster;
+import software.amazon.awscdk.services.elasticloadbalancingv2.AddApplicationTargetGroupsProps;
+import software.amazon.awscdk.services.elasticloadbalancingv2.ApplicationListenerRule;
+import software.amazon.awscdk.services.elasticloadbalancingv2.ApplicationListenerRuleProps;
+import software.amazon.awscdk.services.elasticloadbalancingv2.ApplicationLoadBalancer;
+import software.amazon.awscdk.services.elasticloadbalancingv2.ApplicationProtocol;
+import software.amazon.awscdk.services.elasticloadbalancingv2.ApplicationTargetGroup;
+import software.amazon.awscdk.services.elasticloadbalancingv2.BaseApplicationListenerProps;
+import software.amazon.awscdk.services.elasticloadbalancingv2.IApplicationListener;
+import software.amazon.awscdk.services.elasticloadbalancingv2.IApplicationLoadBalancer;
+import software.amazon.awscdk.services.elasticloadbalancingv2.IApplicationTargetGroup;
+import software.amazon.awscdk.services.elasticloadbalancingv2.IListenerCertificate;
+import software.amazon.awscdk.services.elasticloadbalancingv2.ListenerAction;
+import software.amazon.awscdk.services.elasticloadbalancingv2.ListenerCertificate;
+import software.amazon.awscdk.services.elasticloadbalancingv2.ListenerCondition;
+import software.amazon.awscdk.services.elasticloadbalancingv2.RedirectOptions;
+import software.amazon.awscdk.services.elasticloadbalancingv2.TargetType;
+import software.amazon.awscdk.services.ssm.StringParameter;
+import software.constructs.Construct;
 
 import static java.util.Arrays.asList;
 
@@ -125,7 +147,7 @@ public class Network extends Construct {
   private static Optional<String> getHttpsListenerArnFromParameterStore(Construct scope, String environmentName) {
     String value = StringParameter.fromStringParameterName(scope, PARAMETER_HTTPS_LISTENER, createParameterName(environmentName, PARAMETER_HTTPS_LISTENER))
       .getStringValue();
-    if (value.equals("null")) {
+    if ("null".equals(value)) {
       return Optional.empty();
     } else {
       return Optional.ofNullable(value);
@@ -230,7 +252,7 @@ public class Network extends Construct {
       .build();
 
     SubnetConfiguration isolatedSubnets = SubnetConfiguration.builder()
-      .subnetType(SubnetType.ISOLATED)
+      .subnetType(SubnetType.PRIVATE_ISOLATED)
       .name(prefixWithEnvironmentName("isolatedSubnet"))
       .build();
 
@@ -275,7 +297,7 @@ public class Network extends Construct {
       .securityGroup(loadbalancerSecurityGroup)
       .build();
 
-    IApplicationTargetGroup dummyTargetGroup = ApplicationTargetGroup.Builder.create(this, "dummyTargetGroup")
+    IApplicationTargetGroup dummyTargetGroup = ApplicationTargetGroup.Builder.create(this, "defaultTargetGroup")
       .vpc(vpc)
       .port(8080)
       .protocol(ApplicationProtocol.HTTP)
@@ -289,7 +311,7 @@ public class Network extends Construct {
       .open(true)
       .build());
 
-    httpListener.addTargetGroups("http-dummy", AddApplicationTargetGroupsProps.builder()
+    httpListener.addTargetGroups("http-defaultTargetGroup", AddApplicationTargetGroupsProps.builder()
       .targetGroups(Collections.singletonList(dummyTargetGroup))
       .build());
 
@@ -302,10 +324,26 @@ public class Network extends Construct {
         .open(true)
         .build());
 
-
-      httpsListener.addTargetGroups("https-dummy", AddApplicationTargetGroupsProps.builder()
+      httpsListener.addTargetGroups("https-defaultTargetGroup", AddApplicationTargetGroupsProps.builder()
         .targetGroups(Collections.singletonList(dummyTargetGroup))
         .build());
+
+      ListenerAction redirectAction = ListenerAction.redirect(
+        RedirectOptions.builder()
+          .protocol("HTTPS")
+          .port("443")
+          .build()
+      );
+      ApplicationListenerRule applicationListenerRule = new ApplicationListenerRule(
+        this,
+        "HttpListenerRule",
+        ApplicationListenerRuleProps.builder()
+          .listener(httpListener)
+          .priority(1)
+          .conditions(List.of(ListenerCondition.pathPatterns(List.of("*"))))
+          .action(redirectAction)
+          .build()
+      );
     }
 
     createOutputParameters();
@@ -419,20 +457,27 @@ public class Network extends Construct {
   }
 
   public static class NetworkInputParameters {
-    private final Optional<String> sslCertificateArn;
+    private Optional<String> sslCertificateArn;
 
     /**
      * @param sslCertificateArn the ARN of the SSL certificate that the load balancer will use
      *                          to terminate HTTPS communication. If no SSL certificate is passed,
      *                          the load balancer will only listen to plain HTTP.
+     * @deprecated use {@link #withSslCertificateArn(String)} instead
      */
+    @Deprecated
     public NetworkInputParameters(String sslCertificateArn) {
-      Objects.requireNonNull(sslCertificateArn);
-      this.sslCertificateArn = Optional.of(sslCertificateArn);
+      this.sslCertificateArn = Optional.ofNullable(sslCertificateArn);
     }
 
     public NetworkInputParameters() {
       this.sslCertificateArn = Optional.empty();
+    }
+
+    public NetworkInputParameters withSslCertificateArn(String sslCertificateArn){
+      Objects.requireNonNull(sslCertificateArn);
+      this.sslCertificateArn = Optional.of(sslCertificateArn);
+      return this;
     }
 
     public Optional<String> getSslCertificateArn() {
